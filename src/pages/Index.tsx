@@ -60,6 +60,7 @@ const Index = () => {
   const [favorites, setFavorites] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
+  const [sessionStartTime] = useState(new Date());
   const { toast } = useToast();
 
   useEffect(() => {
@@ -111,13 +112,7 @@ const Index = () => {
 
   const loadGlobalMessages = async () => {
     if (!currentUser) return;
-    try {
-      const data = await api.messages.getAll(String(currentUser.id), '1');
-      const realMessages = data.messages || [];
-      setMessages(realMessages);
-    } catch (error) {
-      console.error('Ошибка загрузки общего чата:', error);
-    }
+    setMessages([]);
   };
 
   const loadChats = async () => {
