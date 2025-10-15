@@ -1,0 +1,22 @@
+{
+  "tests": [
+    {
+      "name": "Регистрация нового пользователя",
+      "method": "POST",
+      "path": "/",
+      "body": {
+        "phone": "+79991234567",
+        "name": "Тестовый пользователь"
+      },
+      "expectedStatus": 200,
+      "expectedBody": {
+        "user": {
+          "phone": "string",
+          "name": "string"
+        },
+        "token": "string"
+      },
+      "bodyMatcher": "partial"
+    }
+  ]
+}

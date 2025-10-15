@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Icon from '@/components/ui/icon';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,6 +11,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Slider } from '@/components/ui/slider';
+import { api } from '@/lib/api';
+import { useToast } from '@/hooks/use-toast';
 
 type User = {
   id: string;
@@ -29,7 +31,10 @@ type Message = {
 
 type Chat = {
   id: string;
-  user: User;
+  name?: string;
+  isGroup?: boolean;
+  isGlobal?: boolean;
+  user?: User;
   lastMessage: string;
   time: string;
   unread: number;
@@ -38,6 +43,7 @@ type Chat = {
 const Index = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [phone, setPhone] = useState('');
+  const [userName, setUserName] = useState('');
   const [activeTab, setActiveTab] = useState('chats');
   const [selectedChat, setSelectedChat] = useState<Chat | null>(null);
   const [messageText, setMessageText] = useState('');
@@ -46,71 +52,167 @@ const Index = () => {
   const [secretPhrase, setSecretPhrase] = useState('');
   const [fontSize, setFontSize] = useState(16);
   const [darkMode, setDarkMode] = useState(false);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [chats, setChats] = useState<Chat[]>([]);
+  const [contacts, setContacts] = useState<User[]>([]);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const { toast } = useToast();
 
-  const currentUser: User = {
-    id: '1',
-    name: 'Вы',
-    avatar: '🐧',
-    online: true
+  useEffect(() => {
+    if (isAuthenticated && currentUser) {
+      loadChats();
+      loadContacts();
+    }
+  }, [isAuthenticated, currentUser]);
+
+  useEffect(() => {
+    if (selectedChat && currentUser) {
+      const chatId = selectedChat.isGlobal ? '1' : selectedChat.id;
+      loadMessages(chatId);
+    }
+  }, [selectedChat, currentUser]);
+
+  const loadChats = async () => {
+    if (!currentUser) return;
+    try {
+      const data = await api.chats.getAll(String(currentUser.id));
+      setChats(data.chats || []);
+    } catch (error) {
+      toast({
+        title: 'Ошибка',
+        description: 'Не удалось загрузить чаты',
+        variant: 'destructive'
+      });
+    }
   };
 
-  const mockChats: Chat[] = [
-    {
-      id: '1',
-      user: { id: '2', name: 'Александр', avatar: '🐧', online: true },
-      lastMessage: 'Привет! Как дела?',
-      time: '12:34',
-      unread: 2
-    },
-    {
-      id: '2',
-      user: { id: '3', name: 'Мария', avatar: '🐧', online: false },
-      lastMessage: 'Спасибо за помощь!',
-      time: '11:20',
-      unread: 0
-    },
-    {
-      id: '3',
-      user: { id: '4', name: 'Дмитрий', avatar: '🐧', online: true },
-      lastMessage: 'Созвонимся сегодня?',
-      time: '10:15',
-      unread: 1
+  const loadContacts = async () => {
+    if (!currentUser) return;
+    try {
+      const data = await api.contacts.getAll(String(currentUser.id));
+      setContacts(data.contacts || []);
+    } catch (error) {
+      toast({
+        title: 'Ошибка',
+        description: 'Не удалось загрузить контакты',
+        variant: 'destructive'
+      });
     }
-  ];
+  };
 
-  const mockContacts: User[] = [
-    { id: '2', name: 'Александр', avatar: '🐧', online: true },
-    { id: '3', name: 'Мария', avatar: '🐧', online: false },
-    { id: '4', name: 'Дмитрий', avatar: '🐧', online: true },
-    { id: '5', name: 'Анна', avatar: '🐧', online: true }
-  ];
+  const loadMessages = async (chatId: string) => {
+    if (!currentUser) return;
+    try {
+      const data = await api.messages.getAll(String(currentUser.id), chatId);
+      setMessages(data.messages || []);
+    } catch (error) {
+      toast({
+        title: 'Ошибка',
+        description: 'Не удалось загрузить сообщения',
+        variant: 'destructive'
+      });
+    }
+  };
 
-  const mockMessages: Message[] = [
-    { id: '1', senderId: '2', text: 'Привет!', time: '12:30', isOwn: false },
-    { id: '2', senderId: '1', text: 'Привет! Как дела?', time: '12:31', isOwn: true },
-    { id: '3', senderId: '2', text: 'Отлично, спасибо!', time: '12:32', isOwn: false },
-    { id: '4', senderId: '1', text: 'Рад слышать 😊', time: '12:33', isOwn: true }
-  ];
+  const handleLogin = async () => {
+    if (phone.length < 10) {
+      toast({
+        title: 'Ошибка',
+        description: 'Введите корректный номер телефона',
+        variant: 'destructive'
+      });
+      return;
+    }
 
-  const mockGlobalChat: Message[] = [
-    { id: '1', senderId: '2', text: 'Всем привет в общем чате!', time: '10:00', isOwn: false },
-    { id: '2', senderId: '3', text: 'Приветствую всех! 👋', time: '10:05', isOwn: false },
-    { id: '3', senderId: '1', text: 'Здравствуйте!', time: '10:10', isOwn: true }
-  ];
-
-  const handleLogin = () => {
-    if (phone.length >= 10) {
+    setIsLoading(true);
+    try {
+      const data = await api.auth.login(phone, userName || 'Пользователь');
+      setCurrentUser({
+        id: String(data.user.id),
+        name: data.user.name,
+        avatar: data.user.avatar,
+        online: true
+      });
       setIsAuthenticated(true);
+      toast({
+        title: 'Успешно!',
+        description: `Добро пожаловать, ${data.user.name}!`
+      });
+    } catch (error) {
+      toast({
+        title: 'Ошибка',
+        description: 'Не удалось войти в систему',
+        variant: 'destructive'
+      });
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const handleGoogleLogin = () => {
-    setIsAuthenticated(true);
+  const handleGoogleLogin = async () => {
+    setIsLoading(true);
+    try {
+      const randomPhone = `+7900${Math.floor(Math.random() * 10000000)}`;
+      const data = await api.auth.login(randomPhone, userName || 'Пользователь Google');
+      setCurrentUser({
+        id: String(data.user.id),
+        name: data.user.name,
+        avatar: data.user.avatar,
+        online: true
+      });
+      setIsAuthenticated(true);
+      toast({
+        title: 'Успешно!',
+        description: `Добро пожаловать, ${data.user.name}!`
+      });
+    } catch (error) {
+      toast({
+        title: 'Ошибка',
+        description: 'Не удалось войти через Google',
+        variant: 'destructive'
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const handleSendMessage = () => {
-    if (messageText.trim()) {
+  const handleSendMessage = async () => {
+    if (!messageText.trim() || !selectedChat || !currentUser) return;
+
+    const chatId = selectedChat.isGlobal ? '1' : selectedChat.id;
+    
+    try {
+      const data = await api.messages.send(String(currentUser.id), chatId, messageText);
+      setMessages([...messages, data.message]);
       setMessageText('');
+      await loadChats();
+    } catch (error) {
+      toast({
+        title: 'Ошибка',
+        description: 'Не удалось отправить сообщение',
+        variant: 'destructive'
+      });
+    }
+  };
+
+  const handleStartChat = async (contactId: string) => {
+    if (!currentUser) return;
+    
+    try {
+      const data = await api.chats.create(String(currentUser.id), contactId);
+      await loadChats();
+      const newChat = chats.find(c => c.id === String(data.chatId));
+      if (newChat) {
+        setSelectedChat(newChat);
+        setActiveTab('chats');
+      }
+    } catch (error) {
+      toast({
+        title: 'Ошибка',
+        description: 'Не удалось создать чат',
+        variant: 'destructive'
+      });
     }
   };
 
@@ -134,6 +236,18 @@ const Index = () => {
 
           <div className="space-y-4">
             <div>
+              <Label htmlFor="name">Ваше имя</Label>
+              <Input
+                id="name"
+                type="text"
+                placeholder="Введите имя"
+                value={userName}
+                onChange={(e) => setUserName(e.target.value)}
+                className="mt-1"
+              />
+            </div>
+
+            <div>
               <Label htmlFor="phone">Номер телефона</Label>
               <Input
                 id="phone"
@@ -148,8 +262,9 @@ const Index = () => {
             <Button 
               className="w-full bg-gradient-primary hover:opacity-90"
               onClick={handleLogin}
+              disabled={isLoading}
             >
-              Войти
+              {isLoading ? 'Вход...' : 'Войти'}
             </Button>
 
             <div className="relative">
@@ -165,9 +280,10 @@ const Index = () => {
               variant="outline"
               className="w-full"
               onClick={handleGoogleLogin}
+              disabled={isLoading}
             >
               <Icon name="Chrome" className="mr-2" size={18} />
-              Войти через Google
+              {isLoading ? 'Вход...' : 'Войти через Google'}
             </Button>
           </div>
         </Card>
@@ -233,7 +349,12 @@ const Index = () => {
 
             <TabsContent value="chats" className="flex-1 m-0">
               <ScrollArea className="h-[calc(100vh-180px)]">
-                {mockChats.map((chat) => (
+                {chats.length === 0 && (
+                  <div className="p-8 text-center text-muted-foreground">
+                    Нет чатов. Начните общение из раздела Контакты!
+                  </div>
+                )}
+                {chats.map((chat) => (
                   <div
                     key={chat.id}
                     className="p-4 hover:bg-muted cursor-pointer border-b transition-colors"
@@ -242,15 +363,15 @@ const Index = () => {
                     <div className="flex gap-3">
                       <div className="relative">
                         <Avatar>
-                          <AvatarFallback className="text-2xl">{chat.user.avatar}</AvatarFallback>
+                          <AvatarFallback className="text-2xl">{chat.user?.avatar || '🐧'}</AvatarFallback>
                         </Avatar>
-                        {chat.user.online && (
+                        {chat.user?.online && (
                           <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-background" />
                         )}
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex justify-between items-start mb-1">
-                          <p className="font-semibold truncate">{chat.user.name}</p>
+                          <p className="font-semibold truncate">{chat.name || chat.user?.name || 'Чат'}</p>
                           <span className="text-xs text-muted-foreground">{chat.time}</span>
                         </div>
                         <div className="flex justify-between items-center">
@@ -268,7 +389,7 @@ const Index = () => {
 
             <TabsContent value="contacts" className="flex-1 m-0">
               <ScrollArea className="h-[calc(100vh-180px)]">
-                {mockContacts.map((contact) => (
+                {contacts.map((contact) => (
                   <div
                     key={contact.id}
                     className="p-4 hover:bg-muted cursor-pointer border-b transition-colors"
@@ -288,7 +409,11 @@ const Index = () => {
                           {contact.online ? 'В сети' : 'Не в сети'}
                         </p>
                       </div>
-                      <Button variant="ghost" size="icon">
+                      <Button 
+                        variant="ghost" 
+                        size="icon"
+                        onClick={() => handleStartChat(contact.id)}
+                      >
                         <Icon name="MessageSquare" size={18} />
                       </Button>
                     </div>
@@ -322,9 +447,27 @@ const Index = () => {
 
             <TabsContent value="global" className="flex-1 m-0">
               <div className="flex flex-col h-[calc(100vh-180px)]">
+                {activeTab === 'global' && (
+                  <Button
+                    variant="ghost"
+                    className="m-2"
+                    onClick={() => {
+                      setSelectedChat({
+                        id: '1',
+                        name: 'Общий чат',
+                        isGlobal: true,
+                        lastMessage: '',
+                        time: '',
+                        unread: 0
+                      });
+                    }}
+                  >
+                    Загрузить сообщения общего чата
+                  </Button>
+                )}
                 <ScrollArea className="flex-1 p-4">
                   <div className="space-y-4">
-                    {mockGlobalChat.map((msg) => (
+                    {messages.map((msg) => (
                       <div
                         key={msg.id}
                         className={`flex ${msg.isOwn ? 'justify-end' : 'justify-start'}`}
@@ -336,9 +479,9 @@ const Index = () => {
                               : 'bg-muted'
                           }`}
                         >
-                          {!msg.isOwn && (
+                          {!msg.isOwn && 'senderName' in msg && (
                             <p className="text-xs font-semibold mb-1 opacity-70">
-                              Пользователь {msg.senderId}
+                              {(msg as any).senderName}
                             </p>
                           )}
                           <p>{msg.text}</p>
@@ -358,7 +501,24 @@ const Index = () => {
                       onChange={(e) => setMessageText(e.target.value)}
                       onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
                     />
-                    <Button size="icon" onClick={handleSendMessage}>
+                    <Button 
+                      size="icon" 
+                      onClick={async () => {
+                        if (!messageText.trim() || !currentUser) return;
+                        
+                        try {
+                          const data = await api.messages.send(String(currentUser.id), '1', messageText);
+                          setMessages([...messages, data.message]);
+                          setMessageText('');
+                        } catch (error) {
+                          toast({
+                            title: 'Ошибка',
+                            description: 'Не удалось отправить сообщение',
+                            variant: 'destructive'
+                          });
+                        }
+                      }}
+                    >
                       <Icon name="Send" size={18} />
                     </Button>
                   </div>
@@ -399,7 +559,7 @@ const Index = () => {
 
             <ScrollArea className="flex-1 p-4">
               <div className="space-y-4">
-                {mockMessages.map((msg) => (
+                {messages.map((msg) => (
                   <div
                     key={msg.id}
                     className={`flex ${msg.isOwn ? 'justify-end' : 'justify-start'} animate-fade-in`}
@@ -519,7 +679,7 @@ const Index = () => {
             </p>
             <ScrollArea className="h-[400px]">
               <div className="space-y-2">
-                {mockContacts.map((contact) => (
+                {contacts.map((contact) => (
                   <Card key={contact.id} className="p-4">
                     <div className="flex items-center gap-3">
                       <Avatar>
@@ -528,7 +688,9 @@ const Index = () => {
                       <div className="flex-1">
                         <p className="font-semibold">{contact.name}</p>
                         <p className="text-xs text-muted-foreground">ID: {contact.id}</p>
-                        <p className="text-xs text-muted-foreground">Телефон: +7 900 000 00 0{contact.id}</p>
+                        <p className="text-xs text-muted-foreground">
+                          Телефон: {(contact as any).phone || 'Не указан'}
+                        </p>
                       </div>
                       <Button variant="outline" size="sm">
                         <Icon name="MessageSquare" size={14} className="mr-1" />

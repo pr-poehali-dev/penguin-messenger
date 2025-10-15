@@ -1,0 +1,6 @@
+{
+  "auth": "https://functions.poehali.dev/95aa1336-3257-469f-8078-a755bbcf7a84",
+  "chats": "https://functions.poehali.dev/d5ad54d1-73a7-44c6-8c21-6c3235d63f29",
+  "contacts": "https://functions.poehali.dev/2e0f5a3f-e4d1-40f4-bdc6-7edea4719a56",
+  "messages": "https://functions.poehali.dev/98b5613c-115f-4715-88eb-b32f0f75f520"
+}
