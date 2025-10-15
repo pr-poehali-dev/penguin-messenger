@@ -97,14 +97,7 @@ const Index = () => {
 
   const loadGlobalMessages = async () => {
     if (!currentUser) return;
-    try {
-      const data = await api.messages.getAll(String(currentUser.id), '1');
-      const realMessages = data.messages || [];
-      setMessages(realMessages);
-    } catch (error) {
-      console.error('Ошибка загрузки общего чата:', error);
-      setMessages([]);
-    }
+    setMessages([]);
   };
 
   const loadChats = async () => {
