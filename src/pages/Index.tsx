@@ -95,9 +95,29 @@ const Index = () => {
     }
   }, [activeTab, currentUser]);
 
+  useEffect(() => {
+    if (!isAuthenticated || !currentUser) return;
+
+    const interval = setInterval(() => {
+      if (activeTab === 'global' || selectedChat?.isGlobal) {
+        loadGlobalMessages();
+      } else if (selectedChat && !selectedChat.isGlobal) {
+        loadMessages(selectedChat.id);
+      }
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [isAuthenticated, currentUser, activeTab, selectedChat]);
+
   const loadGlobalMessages = async () => {
     if (!currentUser) return;
-    setMessages([]);
+    try {
+      const data = await api.messages.getAll(String(currentUser.id), '1');
+      const realMessages = data.messages || [];
+      setMessages(realMessages);
+    } catch (error) {
+      console.error('Ошибка загрузки общего чата:', error);
+    }
   };
 
   const loadChats = async () => {
