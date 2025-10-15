@@ -45,7 +45,6 @@ type Chat = {
 
 const Index = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [phone, setPhone] = useState('');
   const [userName, setUserName] = useState('');
   const [activeTab, setActiveTab] = useState('global');
   const [selectedChat, setSelectedChat] = useState<Chat | null>(null);
@@ -162,11 +161,13 @@ const Index = () => {
     }
   };
 
-  const handleLogin = async () => {
-    if (phone.length < 10) {
+
+
+  const handleGoogleLogin = async () => {
+    if (!userName.trim()) {
       toast({
         title: 'Ошибка',
-        description: 'Введите корректный номер телефона',
+        description: 'Введите ваше имя',
         variant: 'destructive'
       });
       return;
@@ -174,34 +175,8 @@ const Index = () => {
 
     setIsLoading(true);
     try {
-      const data = await api.auth.login(phone, userName || 'Пользователь');
-      setCurrentUser({
-        id: String(data.user.id),
-        name: data.user.name,
-        avatar: data.user.avatar,
-        online: true
-      });
-      setIsAuthenticated(true);
-      toast({
-        title: 'Успешно!',
-        description: `Добро пожаловать, ${data.user.name}!`
-      });
-    } catch (error) {
-      toast({
-        title: 'Ошибка',
-        description: 'Не удалось войти в систему',
-        variant: 'destructive'
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleGoogleLogin = async () => {
-    setIsLoading(true);
-    try {
       const randomPhone = `+7900${Math.floor(Math.random() * 10000000)}`;
-      const data = await api.auth.login(randomPhone, userName || 'Пользователь Google');
+      const data = await api.auth.login(randomPhone, userName);
       setCurrentUser({
         id: String(data.user.id),
         name: data.user.name,
@@ -330,48 +305,23 @@ const Index = () => {
                 placeholder="Введите имя"
                 value={userName}
                 onChange={(e) => setUserName(e.target.value)}
+                onKeyPress={(e) => e.key === 'Enter' && handleGoogleLogin()}
                 className="mt-1 bg-input border-border text-foreground"
               />
-            </div>
-
-            <div>
-              <Label htmlFor="phone" className="text-foreground">Номер телефона</Label>
-              <Input
-                id="phone"
-                type="tel"
-                placeholder="+7 (___) ___-__-__"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                className="mt-1 bg-input border-border text-foreground"
-              />
-            </div>
-
-            <Button 
-              className="w-full bg-gradient-primary hover:opacity-90 text-white"
-              onClick={handleLogin}
-              disabled={isLoading}
-            >
-              {isLoading ? 'Вход...' : 'Войти'}
-            </Button>
-
-            <div className="relative">
-              <div className="absolute inset-0 flex items-center">
-                <span className="w-full border-t border-border" />
-              </div>
-              <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-card px-2 text-muted-foreground">или</span>
-              </div>
             </div>
 
             <Button
-              variant="outline"
-              className="w-full border-border"
+              className="w-full bg-gradient-primary hover:opacity-90 text-white flex items-center justify-center gap-2"
               onClick={handleGoogleLogin}
               disabled={isLoading}
             >
-              <Icon name="Chrome" className="mr-2" size={18} />
+              <Icon name="Chrome" size={20} />
               {isLoading ? 'Вход...' : 'Войти через Google'}
             </Button>
+
+            <p className="text-xs text-center text-muted-foreground">
+              Ваша сессия будет сохранена в браузере
+            </p>
           </div>
         </Card>
       </div>
