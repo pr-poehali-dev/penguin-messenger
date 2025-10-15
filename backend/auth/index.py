@@ -3,13 +3,16 @@ import os
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from typing import Dict, Any
+import hashlib
+import secrets
+from datetime import datetime, timedelta
 
 def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     '''
-    Business: Регистрация и вход пользователей по телефону
+    Business: Регистрация и вход пользователей по телефону с сессиями
     Args: event - dict с httpMethod, body, queryStringParameters
           context - object с атрибутами request_id, function_name
-    Returns: HTTP response dict с данными пользователя
+    Returns: HTTP response dict с данными пользователя и токеном сессии
     '''
     method: str = event.get('httpMethod', 'GET')
     
@@ -55,6 +58,14 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                     )
                     user = cur.fetchone()
                 
+                session_token = secrets.token_urlsafe(32)
+                expires_at = datetime.now() + timedelta(days=30)
+                
+                cur.execute(
+                    "INSERT INTO user_sessions (user_id, session_token, expires_at) VALUES (%s, %s, %s)",
+                    (user['id'], session_token, expires_at)
+                )
+                
                 conn.commit()
                 
                 user_data = {
@@ -74,7 +85,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                     'isBase64Encoded': False,
                     'body': json.dumps({
                         'user': user_data,
-                        'token': f"user_{user['id']}"
+                        'token': session_token
                     })
                 }
         

@@ -87,13 +87,15 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             text = body_data.get('text', '')
             media_url = body_data.get('mediaUrl')
             media_type = body_data.get('mediaType')
+            is_voice = body_data.get('isVoice', False)
+            voice_duration = body_data.get('voiceDuration')
             
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute('''
-                    INSERT INTO messages (chat_id, sender_id, text, media_url, media_type)
-                    VALUES (%s, %s, %s, %s, %s)
+                    INSERT INTO messages (chat_id, sender_id, text, media_url, media_type, is_voice, voice_duration)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
                     RETURNING *
-                ''', (chat_id, sender_id, text, media_url, media_type))
+                ''', (chat_id, sender_id, text, media_url, media_type, is_voice, voice_duration))
                 
                 message = cur.fetchone()
                 conn.commit()

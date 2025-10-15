@@ -4,6 +4,7 @@ const AUTH_URL = `${API_BASE}/95aa1336-3257-469f-8078-a755bbcf7a84`;
 const MESSAGES_URL = `${API_BASE}/98b5613c-115f-4715-88eb-b32f0f75f520`;
 const CONTACTS_URL = `${API_BASE}/2e0f5a3f-e4d1-40f4-bdc6-7edea4719a56`;
 const CHATS_URL = `${API_BASE}/d5ad54d1-73a7-44c6-8c21-6c3235d63f29`;
+const FAVORITES_URL = `${API_BASE}/84354332-d4ae-48ea-a818-ca44a164982f`;
 
 export const api = {
   auth: {
@@ -15,7 +16,26 @@ export const api = {
         },
         body: JSON.stringify({ phone, name }),
       });
-      return response.json();
+      const data = await response.json();
+      if (data.token) {
+        localStorage.setItem('session_token', data.token);
+        localStorage.setItem('user', JSON.stringify(data.user));
+      }
+      return data;
+    },
+
+    loadSession() {
+      const token = localStorage.getItem('session_token');
+      const userStr = localStorage.getItem('user');
+      if (token && userStr) {
+        return { user: JSON.parse(userStr), token };
+      }
+      return null;
+    },
+
+    logout() {
+      localStorage.removeItem('session_token');
+      localStorage.removeItem('user');
     },
   },
 
@@ -52,14 +72,14 @@ export const api = {
       return response.json();
     },
 
-    async send(userId: string, chatId: string, text: string) {
+    async send(userId: string, chatId: string, text: string, isVoice = false, voiceDuration?: number, mediaUrl?: string, mediaType?: string) {
       const response = await fetch(MESSAGES_URL, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'X-User-Id': userId,
         },
-        body: JSON.stringify({ chatId, text }),
+        body: JSON.stringify({ chatId, text, isVoice, voiceDuration, mediaUrl, mediaType }),
       });
       return response.json();
     },
@@ -68,6 +88,39 @@ export const api = {
   contacts: {
     async getAll(userId: string) {
       const response = await fetch(CONTACTS_URL, {
+        headers: {
+          'X-User-Id': userId,
+        },
+      });
+      return response.json();
+    },
+  },
+
+  favorites: {
+    async getAll(userId: string) {
+      const response = await fetch(FAVORITES_URL, {
+        headers: {
+          'X-User-Id': userId,
+        },
+      });
+      return response.json();
+    },
+
+    async add(userId: string, messageId: string) {
+      const response = await fetch(FAVORITES_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Id': userId,
+        },
+        body: JSON.stringify({ messageId }),
+      });
+      return response.json();
+    },
+
+    async remove(userId: string, messageId: string) {
+      const response = await fetch(`${FAVORITES_URL}?message_id=${messageId}`, {
+        method: 'DELETE',
         headers: {
           'X-User-Id': userId,
         },
