@@ -6,11 +6,13 @@ from typing import Dict, Any
 import hashlib
 import secrets
 from datetime import datetime, timedelta
+from google.oauth2 import id_token
+from google.auth.transport import requests as google_requests
 
 def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     '''
-    Business: Регистрация и вход пользователей по телефону с сессиями
-    Args: event - dict с httpMethod, body, queryStringParameters
+    Business: Регистрация и вход пользователей по телефону или через Google OAuth
+    Args: event - dict с httpMethod, body (phone/name для телефона или google_token для Google), queryStringParameters
           context - object с атрибутами request_id, function_name
     Returns: HTTP response dict с данными пользователя и токеном сессии
     '''
@@ -37,26 +39,79 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             body_data = json.loads(event.get('body', '{}'))
             phone = body_data.get('phone', '')
             name = body_data.get('name', 'Пользователь')
+            google_token = body_data.get('google_token', '')
             
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute(
-                    "SELECT id, phone, name, avatar, online FROM users WHERE phone = %s",
-                    (phone,)
-                )
-                user = cur.fetchone()
+                user = None
                 
-                if not user:
+                if google_token:
+                    client_id = os.environ.get('GOOGLE_CLIENT_ID')
+                    if not client_id:
+                        return {
+                            'statusCode': 500,
+                            'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+                            'isBase64Encoded': False,
+                            'body': json.dumps({'error': 'Google auth not configured'})
+                        }
+                    
+                    try:
+                        idinfo = id_token.verify_oauth2_token(google_token, google_requests.Request(), client_id)
+                        google_id = idinfo['sub']
+                        email = idinfo.get('email', '')
+                        name = idinfo.get('name', 'User')
+                        avatar = idinfo.get('picture', '')
+                        
+                        cur.execute(
+                            "SELECT id, phone, name, avatar, online, email FROM users WHERE google_id = %s",
+                            (google_id,)
+                        )
+                        user = cur.fetchone()
+                        
+                        if not user:
+                            cur.execute(
+                                "INSERT INTO users (google_id, email, name, avatar, online) VALUES (%s, %s, %s, %s, true) RETURNING id, phone, name, avatar, online, email",
+                                (google_id, email, name, avatar)
+                            )
+                            user = cur.fetchone()
+                        else:
+                            cur.execute(
+                                "UPDATE users SET online = true, last_seen = NOW() WHERE id = %s RETURNING id, phone, name, avatar, online, email",
+                                (user['id'],)
+                            )
+                            user = cur.fetchone()
+                    except Exception as e:
+                        return {
+                            'statusCode': 401,
+                            'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+                            'isBase64Encoded': False,
+                            'body': json.dumps({'error': f'Invalid Google token: {str(e)}'})
+                        }
+                elif phone:
                     cur.execute(
-                        "INSERT INTO users (phone, name, online) VALUES (%s, %s, true) RETURNING id, phone, name, avatar, online",
-                        (phone, name)
+                        "SELECT id, phone, name, avatar, online, email FROM users WHERE phone = %s",
+                        (phone,)
                     )
                     user = cur.fetchone()
+                    
+                    if not user:
+                        cur.execute(
+                            "INSERT INTO users (phone, name, online) VALUES (%s, %s, true) RETURNING id, phone, name, avatar, online, email",
+                            (phone, name)
+                        )
+                        user = cur.fetchone()
+                    else:
+                        cur.execute(
+                            "UPDATE users SET online = true, last_seen = NOW() WHERE id = %s RETURNING id, phone, name, avatar, online, email",
+                            (user['id'],)
+                        )
+                        user = cur.fetchone()
                 else:
-                    cur.execute(
-                        "UPDATE users SET online = true WHERE id = %s RETURNING id, phone, name, avatar, online",
-                        (user['id'],)
-                    )
-                    user = cur.fetchone()
+                    return {
+                        'statusCode': 400,
+                        'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+                        'isBase64Encoded': False,
+                        'body': json.dumps({'error': 'Phone or Google token required'})
+                    }
                 
                 session_token = secrets.token_urlsafe(32)
                 expires_at = datetime.now() + timedelta(days=30)
@@ -73,7 +128,8 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                     'phone': user['phone'],
                     'name': user['name'],
                     'avatar': user['avatar'],
-                    'online': user['online']
+                    'online': user['online'],
+                    'email': user.get('email')
                 }
                 
                 return {

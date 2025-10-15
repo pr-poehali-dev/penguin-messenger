@@ -122,22 +122,34 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             body_data = json.loads(event.get('body', '{}'))
             user_id = event.get('headers', {}).get('x-user-id')
             contact_id = body_data.get('contactId')
+            is_group = body_data.get('isGroup', False)
+            group_name = body_data.get('groupName', '')
+            group_avatar = body_data.get('groupAvatar', '')
+            member_ids = body_data.get('memberIds', [])
             
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute('''
-                    SELECT c.id 
-                    FROM chats c
-                    JOIN chat_members cm1 ON c.id = cm1.chat_id
-                    JOIN chat_members cm2 ON c.id = cm2.chat_id
-                    WHERE cm1.user_id = %s 
-                    AND cm2.user_id = %s 
-                    AND c.is_group = false
-                    LIMIT 1
-                ''', (user_id, contact_id))
-                
-                existing_chat = cur.fetchone()
-                
-                if existing_chat:
+                if is_group:
+                    cur.execute(
+                        'INSERT INTO chats (is_group, group_name, group_avatar) VALUES (true, %s, %s) RETURNING id',
+                        (group_name, group_avatar)
+                    )
+                    new_chat = cur.fetchone()
+                    chat_id = new_chat['id']
+                    
+                    cur.execute(
+                        'INSERT INTO chat_members (chat_id, user_id) VALUES (%s, %s)',
+                        (chat_id, user_id)
+                    )
+                    
+                    for member_id in member_ids:
+                        if member_id != int(user_id):
+                            cur.execute(
+                                'INSERT INTO chat_members (chat_id, user_id) VALUES (%s, %s)',
+                                (chat_id, member_id)
+                            )
+                    
+                    conn.commit()
+                    
                     return {
                         'statusCode': 200,
                         'headers': {
@@ -145,29 +157,53 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                             'Access-Control-Allow-Origin': '*'
                         },
                         'isBase64Encoded': False,
-                        'body': json.dumps({'chatId': existing_chat['id']})
+                        'body': json.dumps({'chatId': chat_id, 'groupName': group_name})
                     }
-                
-                cur.execute('INSERT INTO chats (is_group) VALUES (false) RETURNING id')
-                new_chat = cur.fetchone()
-                chat_id = new_chat['id']
-                
-                cur.execute(
-                    'INSERT INTO chat_members (chat_id, user_id) VALUES (%s, %s), (%s, %s)',
-                    (chat_id, user_id, chat_id, contact_id)
-                )
-                
-                conn.commit()
-                
-                return {
-                    'statusCode': 200,
-                    'headers': {
-                        'Content-Type': 'application/json',
-                        'Access-Control-Allow-Origin': '*'
-                    },
-                    'isBase64Encoded': False,
-                    'body': json.dumps({'chatId': chat_id})
-                }
+                else:
+                    cur.execute('''
+                        SELECT c.id 
+                        FROM chats c
+                        JOIN chat_members cm1 ON c.id = cm1.chat_id
+                        JOIN chat_members cm2 ON c.id = cm2.chat_id
+                        WHERE cm1.user_id = %s 
+                        AND cm2.user_id = %s 
+                        AND c.is_group = false
+                        LIMIT 1
+                    ''', (user_id, contact_id))
+                    
+                    existing_chat = cur.fetchone()
+                    
+                    if existing_chat:
+                        return {
+                            'statusCode': 200,
+                            'headers': {
+                                'Content-Type': 'application/json',
+                                'Access-Control-Allow-Origin': '*'
+                            },
+                            'isBase64Encoded': False,
+                            'body': json.dumps({'chatId': existing_chat['id']})
+                        }
+                    
+                    cur.execute('INSERT INTO chats (is_group) VALUES (false) RETURNING id')
+                    new_chat = cur.fetchone()
+                    chat_id = new_chat['id']
+                    
+                    cur.execute(
+                        'INSERT INTO chat_members (chat_id, user_id) VALUES (%s, %s), (%s, %s)',
+                        (chat_id, user_id, chat_id, contact_id)
+                    )
+                    
+                    conn.commit()
+                    
+                    return {
+                        'statusCode': 200,
+                        'headers': {
+                            'Content-Type': 'application/json',
+                            'Access-Control-Allow-Origin': '*'
+                        },
+                        'isBase64Encoded': False,
+                        'body': json.dumps({'chatId': chat_id})
+                    }
         
         return {
             'statusCode': 405,

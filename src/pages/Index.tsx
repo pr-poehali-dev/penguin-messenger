@@ -46,13 +46,16 @@ type Chat = {
 const Index = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [userName, setUserName] = useState('');
+  const [userPhone, setUserPhone] = useState('');
   const [activeTab, setActiveTab] = useState('global');
   const [selectedChat, setSelectedChat] = useState<Chat | null>(null);
   const [messageText, setMessageText] = useState('');
   const [showSettings, setShowSettings] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
+  const [showCreateGroup, setShowCreateGroup] = useState(false);
   const [secretPhrase, setSecretPhrase] = useState('');
   const [fontSize, setFontSize] = useState(16);
+  const [isDarkTheme, setIsDarkTheme] = useState(true);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [chats, setChats] = useState<Chat[]>([]);
   const [contacts, setContacts] = useState<User[]>([]);
@@ -61,9 +64,25 @@ const Index = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [sessionStartTime] = useState(new Date());
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [groupName, setGroupName] = useState('');
+  const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
   const { toast } = useToast();
 
   useEffect(() => {
+    const savedTheme = localStorage.getItem('theme') || 'dark';
+    setIsDarkTheme(savedTheme === 'dark');
+    if (savedTheme === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+    
+    const savedFontSize = localStorage.getItem('fontSize');
+    if (savedFontSize) {
+      setFontSize(parseInt(savedFontSize));
+    }
+    
     const session = api.auth.loadSession();
     if (session) {
       setCurrentUser({
@@ -75,6 +94,20 @@ const Index = () => {
       setIsAuthenticated(true);
     }
   }, []);
+  
+  useEffect(() => {
+    document.documentElement.style.fontSize = `${fontSize}px`;
+  }, [fontSize]);
+  
+  useEffect(() => {
+    if (isDarkTheme) {
+      document.documentElement.classList.add('dark');
+      localStorage.setItem('theme', 'dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+      localStorage.setItem('theme', 'light');
+    }
+  }, [isDarkTheme]);
 
   useEffect(() => {
     if (isAuthenticated && currentUser) {
@@ -182,11 +215,19 @@ const Index = () => {
       });
       return;
     }
+    
+    if (!userPhone.trim()) {
+      toast({
+        title: 'Ошибка',
+        description: 'Введите номер телефона',
+        variant: 'destructive'
+      });
+      return;
+    }
 
     setIsLoading(true);
     try {
-      const randomPhone = `+7900${Math.floor(Math.random() * 10000000)}`;
-      const data = await api.auth.login(randomPhone, userName);
+      const data = await api.auth.login(userPhone, userName);
       setCurrentUser({
         id: String(data.user.id),
         name: data.user.name,
@@ -196,12 +237,12 @@ const Index = () => {
       setIsAuthenticated(true);
       toast({
         title: 'Успешно!',
-        description: `Добро пожаловать, ${data.user.name}!`
+        description: `Добро пожаловать в ПингвинГрамм, ${data.user.name}!`
       });
     } catch (error) {
       toast({
         title: 'Ошибка',
-        description: 'Не удалось войти через Google',
+        description: 'Не удалось войти. Проверьте данные',
         variant: 'destructive'
       });
     } finally {
@@ -267,6 +308,82 @@ const Index = () => {
       });
     }
   };
+  
+  const handleCreateGroup = async () => {
+    if (!currentUser || !groupName.trim()) {
+      toast({
+        title: 'Ошибка',
+        description: 'Введите название группы',
+        variant: 'destructive'
+      });
+      return;
+    }
+    
+    try {
+      await api.chats.createGroup(String(currentUser.id), groupName, selectedMembers);
+      toast({
+        title: 'Успешно!',
+        description: `Группа "${groupName}" создана`
+      });
+      setShowCreateGroup(false);
+      setGroupName('');
+      setSelectedMembers([]);
+      await loadChats();
+      setActiveTab('chats');
+    } catch (error) {
+      toast({
+        title: 'Ошибка',
+        description: 'Не удалось создать группу',
+        variant: 'destructive'
+      });
+    }
+  };
+  
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    
+    setSelectedFile(file);
+    
+    const reader = new FileReader();
+    reader.onloadend = async () => {
+      const base64 = reader.result?.toString().split(',')[1];
+      if (!base64) return;
+      
+      const mediaType = file.type.startsWith('image/') ? 'image' : 
+                        file.type.startsWith('video/') ? 'video' : 'file';
+      
+      const chatId = selectedChat?.isGlobal || activeTab === 'global' ? '1' : selectedChat?.id || '1';
+      
+      try {
+        await api.messages.send(
+          String(currentUser?.id),
+          chatId,
+          file.name,
+          false,
+          undefined,
+          `data:${file.type};base64,${base64}`,
+          mediaType
+        );
+        
+        toast({
+          title: 'Успешно!',
+          description: 'Файл отправлен'
+        });
+        
+        setSelectedFile(null);
+        await loadMessages(chatId);
+      } catch (error) {
+        toast({
+          title: 'Ошибка',
+          description: 'Не удалось отправить файл',
+          variant: 'destructive'
+        });
+      }
+    };
+    
+    reader.readAsDataURL(file);
+  };
 
   const handleVoiceRecord = () => {
     setIsRecording(!isRecording);
@@ -315,6 +432,18 @@ const Index = () => {
                 placeholder="Введите имя"
                 value={userName}
                 onChange={(e) => setUserName(e.target.value)}
+                className="mt-1 bg-input border-border text-foreground"
+              />
+            </div>
+            
+            <div>
+              <Label htmlFor="phone" className="text-foreground">Номер телефона</Label>
+              <Input
+                id="phone"
+                type="tel"
+                placeholder="+7 900 123 45 67"
+                value={userPhone}
+                onChange={(e) => setUserPhone(e.target.value)}
                 onKeyPress={(e) => e.key === 'Enter' && handleGoogleLogin()}
                 className="mt-1 bg-input border-border text-foreground"
               />
@@ -325,8 +454,27 @@ const Index = () => {
               onClick={handleGoogleLogin}
               disabled={isLoading}
             >
+              <Icon name="Phone" size={20} />
+              {isLoading ? 'Вход...' : 'Войти по телефону'}
+            </Button>
+            
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <span className="w-full border-t border-border" />
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-card px-2 text-muted-foreground">или</span>
+              </div>
+            </div>
+            
+            <Button
+              variant="outline"
+              className="w-full border-border hover:bg-secondary flex items-center justify-center gap-2"
+              onClick={handleGoogleLogin}
+              disabled={isLoading}
+            >
               <Icon name="Chrome" size={20} />
-              {isLoading ? 'Вход...' : 'Войти через Google'}
+              Войти через Google
             </Button>
 
             <p className="text-xs text-center text-muted-foreground">
@@ -357,7 +505,17 @@ const Index = () => {
               variant="ghost"
               size="icon"
               className="text-white hover:bg-white/20"
+              onClick={() => setShowCreateGroup(true)}
+              title="Создать группу"
+            >
+              <Icon name="UsersRound" size={20} />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-white hover:bg-white/20"
               onClick={() => setShowSettings(true)}
+              title="Настройки"
             >
               <Icon name="Settings" size={20} />
             </Button>
@@ -366,6 +524,7 @@ const Index = () => {
               size="icon"
               className="text-white hover:bg-white/20"
               onClick={handleLogout}
+              title="Выйти"
             >
               <Icon name="LogOut" size={20} />
             </Button>
@@ -679,15 +838,38 @@ const Index = () => {
                   size="icon"
                   className={isRecording ? 'bg-destructive text-white' : ''}
                   onClick={handleVoiceRecord}
+                  title="Голосовое сообщение"
                 >
                   <Icon name="Mic" size={18} />
                 </Button>
-                <Button variant="ghost" size="icon">
-                  <Icon name="Image" size={18} />
-                </Button>
-                <Button variant="ghost" size="icon">
-                  <Icon name="Paperclip" size={18} />
-                </Button>
+                <label htmlFor="image-upload">
+                  <Button variant="ghost" size="icon" asChild>
+                    <span title="Отправить фото">
+                      <Icon name="Image" size={18} />
+                    </span>
+                  </Button>
+                </label>
+                <input 
+                  id="image-upload" 
+                  type="file" 
+                  accept="image/*" 
+                  className="hidden"
+                  onChange={handleFileUpload}
+                />
+                <label htmlFor="file-upload">
+                  <Button variant="ghost" size="icon" asChild>
+                    <span title="Отправить файл">
+                      <Icon name="Paperclip" size={18} />
+                    </span>
+                  </Button>
+                </label>
+                <input 
+                  id="file-upload" 
+                  type="file" 
+                  accept="video/*,audio/*,.pdf,.doc,.docx" 
+                  className="hidden"
+                  onChange={handleFileUpload}
+                />
                 <Input
                   placeholder="Сообщение..."
                   value={messageText}
@@ -722,15 +904,35 @@ const Index = () => {
           </DialogHeader>
           <div className="space-y-6">
             <div className="space-y-2">
-              <Label>Размер текста</Label>
+              <Label>Тема оформления</Label>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Icon name={isDarkTheme ? 'Moon' : 'Sun'} size={18} />
+                  <span className="text-sm">{isDarkTheme ? 'Темная тема' : 'Светлая тема'}</span>
+                </div>
+                <Switch 
+                  checked={isDarkTheme}
+                  onCheckedChange={(checked) => {
+                    setIsDarkTheme(checked);
+                    localStorage.setItem('fontSize', String(fontSize));
+                  }}
+                />
+              </div>
+            </div>
+            
+            <div className="space-y-2">
+              <Label>Размер текста (для слабовидящих)</Label>
               <div className="flex items-center gap-4">
                 <span className="text-sm text-muted-foreground">А</span>
                 <Slider
                   value={[fontSize]}
-                  onValueChange={(value) => setFontSize(value[0])}
+                  onValueChange={(value) => {
+                    setFontSize(value[0]);
+                    localStorage.setItem('fontSize', String(value[0]));
+                  }}
                   min={12}
-                  max={24}
-                  step={1}
+                  max={32}
+                  step={2}
                   className="flex-1"
                 />
                 <span className="text-lg text-muted-foreground">А</span>
@@ -748,6 +950,17 @@ const Index = () => {
                 <span className="text-sm">Читать уведомления</span>
                 <Switch defaultChecked />
               </div>
+            </div>
+            
+            <div className="border-t pt-4">
+              <Button 
+                variant="destructive" 
+                className="w-full"
+                onClick={handleLogout}
+              >
+                <Icon name="LogOut" size={18} className="mr-2" />
+                Выйти из аккаунта
+              </Button>
             </div>
           </div>
         </DialogContent>
@@ -786,6 +999,60 @@ const Index = () => {
                 ))}
               </div>
             </ScrollArea>
+          </div>
+        </DialogContent>
+      </Dialog>
+      
+      <Dialog open={showCreateGroup} onOpenChange={setShowCreateGroup}>
+        <DialogContent className="bg-card border-border">
+          <DialogHeader>
+            <DialogTitle>Создать группу</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="group-name">Название группы</Label>
+              <Input
+                id="group-name"
+                placeholder="Введите название"
+                value={groupName}
+                onChange={(e) => setGroupName(e.target.value)}
+                className="mt-1 bg-input border-border"
+              />
+            </div>
+            
+            <div>
+              <Label>Выберите участников</Label>
+              <ScrollArea className="h-[200px] mt-2 border rounded-lg border-border">
+                {contacts.map((contact) => (
+                  <div
+                    key={contact.id}
+                    className="flex items-center gap-3 p-3 hover:bg-muted cursor-pointer"
+                    onClick={() => {
+                      if (selectedMembers.includes(contact.id)) {
+                        setSelectedMembers(selectedMembers.filter(id => id !== contact.id));
+                      } else {
+                        setSelectedMembers([...selectedMembers, contact.id]);
+                      }
+                    }}
+                  >
+                    <Switch checked={selectedMembers.includes(contact.id)} />
+                    <Avatar className="w-8 h-8">
+                      <AvatarFallback className="text-sm bg-muted">{contact.avatar}</AvatarFallback>
+                    </Avatar>
+                    <span className="text-sm">{contact.name}</span>
+                  </div>
+                ))}
+              </ScrollArea>
+            </div>
+            
+            <Button 
+              onClick={handleCreateGroup} 
+              className="w-full bg-gradient-primary"
+              disabled={!groupName.trim() || selectedMembers.length === 0}
+            >
+              <Icon name="Users" size={18} className="mr-2" />
+              Создать группу
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

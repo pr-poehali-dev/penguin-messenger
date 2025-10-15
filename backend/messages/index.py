@@ -89,6 +89,12 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             media_type = body_data.get('mediaType')
             is_voice = body_data.get('isVoice', False)
             voice_duration = body_data.get('voiceDuration')
+            media_file = body_data.get('mediaFile')
+            
+            if media_file and not media_url:
+                import uuid
+                file_id = str(uuid.uuid4())
+                media_url = f"data:{media_type};base64,{media_file}"
             
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute('''

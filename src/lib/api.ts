@@ -23,6 +23,22 @@ export const api = {
       }
       return data;
     },
+    
+    async loginWithGoogle(googleToken: string) {
+      const response = await fetch(AUTH_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ google_token: googleToken }),
+      });
+      const data = await response.json();
+      if (data.token) {
+        localStorage.setItem('session_token', data.token);
+        localStorage.setItem('user', JSON.stringify(data.user));
+      }
+      return data;
+    },
 
     loadSession() {
       const token = localStorage.getItem('session_token');
@@ -57,6 +73,22 @@ export const api = {
           'X-User-Id': userId,
         },
         body: JSON.stringify({ contactId }),
+      });
+      return response.json();
+    },
+    
+    async createGroup(userId: string, groupName: string, memberIds: string[]) {
+      const response = await fetch(CHATS_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Id': userId,
+        },
+        body: JSON.stringify({ 
+          isGroup: true, 
+          groupName, 
+          memberIds: memberIds.map(id => parseInt(id))
+        }),
       });
       return response.json();
     },
