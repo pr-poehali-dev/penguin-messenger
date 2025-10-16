@@ -5,6 +5,7 @@ const MESSAGES_URL = `${API_BASE}/98b5613c-115f-4715-88eb-b32f0f75f520`;
 const CONTACTS_URL = `${API_BASE}/2e0f5a3f-e4d1-40f4-bdc6-7edea4719a56`;
 const CHATS_URL = `${API_BASE}/d5ad54d1-73a7-44c6-8c21-6c3235d63f29`;
 const FAVORITES_URL = `${API_BASE}/84354332-d4ae-48ea-a818-ca44a164982f`;
+const CALLS_URL = `${API_BASE}/calls`;
 
 export const api = {
   auth: {
@@ -156,6 +157,44 @@ export const api = {
         headers: {
           'X-User-Id': userId,
         },
+      });
+      return response.json();
+    },
+  },
+
+  calls: {
+    async initiate(userId: string, targetUserId: string, callType: 'voice' | 'video') {
+      const response = await fetch(CALLS_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Id': userId,
+        },
+        body: JSON.stringify({ targetUserId, callType }),
+      });
+      return response.json();
+    },
+
+    async accept(userId: string, callId: string) {
+      const response = await fetch(`${CALLS_URL}/accept`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Id': userId,
+        },
+        body: JSON.stringify({ callId }),
+      });
+      return response.json();
+    },
+
+    async end(userId: string, callId: string) {
+      const response = await fetch(`${CALLS_URL}/end`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Id': userId,
+        },
+        body: JSON.stringify({ callId }),
       });
       return response.json();
     },

@@ -67,6 +67,14 @@ const Index = () => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [groupName, setGroupName] = useState('');
   const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
+  const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
+  const [audioChunks, setAudioChunks] = useState<Blob[]>([]);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const [recordingInterval, setRecordingInterval] = useState<NodeJS.Timeout | null>(null);
+  const [showIncomingCall, setShowIncomingCall] = useState(false);
+  const [currentCall, setCurrentCall] = useState<{type: 'voice' | 'video', user: User} | null>(null);
+  const [isInCall, setIsInCall] = useState(false);
+  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -385,14 +393,88 @@ const Index = () => {
     reader.readAsDataURL(file);
   };
 
-  const handleVoiceRecord = () => {
-    setIsRecording(!isRecording);
-    if (!isRecording) {
-      setTimeout(() => {
+  const handleVoiceRecord = async () => {
+    if (isRecording) {
+      if (mediaRecorder && mediaRecorder.state === 'recording') {
+        mediaRecorder.stop();
+        if (recordingInterval) {
+          clearInterval(recordingInterval);
+          setRecordingInterval(null);
+        }
+      }
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      const chunks: Blob[] = [];
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          chunks.push(e.data);
+        }
+      };
+
+      recorder.onstop = async () => {
+        const audioBlob = new Blob(chunks, { type: 'audio/webm' });
+        const reader = new FileReader();
+        
+        reader.onloadend = async () => {
+          const base64 = reader.result?.toString().split(',')[1];
+          if (!base64 || !currentUser) return;
+          
+          const chatId = selectedChat?.isGlobal || activeTab === 'global' ? '1' : selectedChat?.id || '1';
+          
+          try {
+            await api.messages.send(
+              String(currentUser.id),
+              chatId,
+              '',
+              true,
+              recordingTime,
+              `data:audio/webm;base64,${base64}`,
+              'audio'
+            );
+            
+            toast({
+              title: 'Отправлено!',
+              description: 'Голосовое сообщение отправлено'
+            });
+            
+            await loadMessages(chatId);
+          } catch (error) {
+            toast({
+              title: 'Ошибка',
+              description: 'Не удалось отправить голосовое сообщение',
+              variant: 'destructive'
+            });
+          }
+        };
+        
+        reader.readAsDataURL(audioBlob);
+        stream.getTracks().forEach(track => track.stop());
+        setRecordingTime(0);
         setIsRecording(false);
-        setMessageText('Голосовое сообщение');
-        handleSendMessage(true);
-      }, 2000);
+      };
+
+      recorder.start();
+      setMediaRecorder(recorder);
+      setIsRecording(true);
+      
+      let time = 0;
+      const interval = setInterval(() => {
+        time += 1;
+        setRecordingTime(time);
+      }, 1000);
+      setRecordingInterval(interval);
+      
+    } catch (error) {
+      toast({
+        title: 'Ошибка',
+        description: 'Не удалось получить доступ к микрофону',
+        variant: 'destructive'
+      });
     }
   };
 
@@ -400,6 +482,76 @@ const Index = () => {
     if (secretPhrase === 'Пингвин 25963') {
       setShowAdmin(true);
       setSecretPhrase('');
+    }
+  };
+
+  const startVoiceCall = async (user: User) => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      setLocalStream(stream);
+      setCurrentCall({ type: 'voice', user });
+      setIsInCall(true);
+      
+      toast({
+        title: 'Звонок',
+        description: `Голосовой звонок ${user.name}...`
+      });
+    } catch (error) {
+      toast({
+        title: 'Ошибка',
+        description: 'Не удалось получить доступ к микрофону',
+        variant: 'destructive'
+      });
+    }
+  };
+
+  const startVideoCall = async (user: User) => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+      setLocalStream(stream);
+      setCurrentCall({ type: 'video', user });
+      setIsInCall(true);
+      
+      toast({
+        title: 'Видеозвонок',
+        description: `Видеозвонок ${user.name}...`
+      });
+    } catch (error) {
+      toast({
+        title: 'Ошибка',
+        description: 'Не удалось получить доступ к камере',
+        variant: 'destructive'
+      });
+    }
+  };
+
+  const endCall = () => {
+    if (localStream) {
+      localStream.getTracks().forEach(track => track.stop());
+    }
+    setLocalStream(null);
+    setCurrentCall(null);
+    setIsInCall(false);
+    setShowIncomingCall(false);
+  };
+
+  const acceptCall = async () => {
+    if (!currentCall) return;
+    
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: true, 
+        video: currentCall.type === 'video' 
+      });
+      setLocalStream(stream);
+      setShowIncomingCall(false);
+      setIsInCall(true);
+    } catch (error) {
+      toast({
+        title: 'Ошибка',
+        description: 'Не удалось подключиться к звонку',
+        variant: 'destructive'
+      });
     }
   };
 
@@ -634,9 +786,10 @@ const Index = () => {
                     </Button>
                   </div>
                   {isRecording && (
-                    <p className="text-xs text-destructive mt-2 animate-pulse">
-                      Идёт запись голосового сообщения...
-                    </p>
+                    <div className="flex items-center gap-2 mt-2 text-xs text-destructive animate-pulse">
+                      <Icon name="Mic" size={16} />
+                      <span>Запись... {recordingTime}с</span>
+                    </div>
                   )}
                 </div>
               </div>
@@ -707,13 +860,32 @@ const Index = () => {
                           {contact.online ? 'В сети' : 'Не в сети'}
                         </p>
                       </div>
-                      <Button 
-                        variant="ghost" 
-                        size="icon"
-                        onClick={() => handleStartChat(contact.id)}
-                      >
-                        <Icon name="MessageSquare" size={18} />
-                      </Button>
+                      <div className="flex gap-1">
+                        <Button 
+                          variant="ghost" 
+                          size="icon"
+                          onClick={() => startVoiceCall(contact)}
+                          title="Голосовой звонок"
+                        >
+                          <Icon name="Phone" size={18} />
+                        </Button>
+                        <Button 
+                          variant="ghost" 
+                          size="icon"
+                          onClick={() => startVideoCall(contact)}
+                          title="Видеозвонок"
+                        >
+                          <Icon name="Video" size={18} />
+                        </Button>
+                        <Button 
+                          variant="ghost" 
+                          size="icon"
+                          onClick={() => handleStartChat(contact.id)}
+                          title="Написать"
+                        >
+                          <Icon name="MessageSquare" size={18} />
+                        </Button>
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -1053,6 +1225,117 @@ const Index = () => {
               <Icon name="Users" size={18} className="mr-2" />
               Создать группу
             </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isInCall} onOpenChange={(open) => !open && endCall()}>
+        <DialogContent className="max-w-2xl bg-card border-border">
+          <DialogHeader>
+            <DialogTitle>
+              {currentCall?.type === 'video' ? 'Видеозвонок' : 'Голосовой звонок'} с {currentCall?.user.name}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            {currentCall?.type === 'video' && (
+              <div className="aspect-video bg-muted rounded-lg flex items-center justify-center">
+                <div className="text-center">
+                  <Avatar className="w-24 h-24 mx-auto mb-4">
+                    <AvatarFallback className="text-4xl bg-primary/20">
+                      {currentCall.user.avatar}
+                    </AvatarFallback>
+                  </Avatar>
+                  <p className="text-lg font-semibold">{currentCall.user.name}</p>
+                  <p className="text-sm text-muted-foreground mt-2">Видео подключается...</p>
+                </div>
+              </div>
+            )}
+            
+            {currentCall?.type === 'voice' && (
+              <div className="py-12 text-center">
+                <Avatar className="w-32 h-32 mx-auto mb-6">
+                  <AvatarFallback className="text-6xl bg-primary/20">
+                    {currentCall.user.avatar}
+                  </AvatarFallback>
+                </Avatar>
+                <p className="text-2xl font-semibold mb-2">{currentCall.user.name}</p>
+                <p className="text-muted-foreground animate-pulse">Соединение...</p>
+              </div>
+            )}
+            
+            <div className="flex justify-center gap-4 pt-4">
+              <Button
+                size="lg"
+                variant="outline"
+                className="rounded-full w-16 h-16"
+                onClick={endCall}
+              >
+                <Icon name="MicOff" size={24} />
+              </Button>
+              
+              {currentCall?.type === 'video' && (
+                <Button
+                  size="lg"
+                  variant="outline"
+                  className="rounded-full w-16 h-16"
+                  onClick={endCall}
+                >
+                  <Icon name="VideoOff" size={24} />
+                </Button>
+              )}
+              
+              <Button
+                size="lg"
+                variant="destructive"
+                className="rounded-full w-16 h-16"
+                onClick={endCall}
+              >
+                <Icon name="PhoneOff" size={24} />
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showIncomingCall} onOpenChange={setShowIncomingCall}>
+        <DialogContent className="max-w-md bg-card border-border">
+          <DialogHeader>
+            <DialogTitle>Входящий звонок</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-6 py-4">
+            <div className="text-center">
+              <Avatar className="w-24 h-24 mx-auto mb-4">
+                <AvatarFallback className="text-4xl bg-primary/20">
+                  {currentCall?.user.avatar}
+                </AvatarFallback>
+              </Avatar>
+              <p className="text-xl font-semibold">{currentCall?.user.name}</p>
+              <p className="text-sm text-muted-foreground mt-2">
+                {currentCall?.type === 'video' ? 'Видеозвонок' : 'Голосовой звонок'}
+              </p>
+            </div>
+            
+            <div className="flex justify-center gap-4">
+              <Button
+                size="lg"
+                variant="destructive"
+                className="rounded-full w-16 h-16"
+                onClick={() => {
+                  setShowIncomingCall(false);
+                  setCurrentCall(null);
+                }}
+              >
+                <Icon name="PhoneOff" size={24} />
+              </Button>
+              
+              <Button
+                size="lg"
+                className="rounded-full w-16 h-16 bg-green-500 hover:bg-green-600"
+                onClick={acceptCall}
+              >
+                <Icon name="Phone" size={24} />
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
