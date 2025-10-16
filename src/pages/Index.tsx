@@ -78,14 +78,14 @@ const Index = () => {
   }, [isAuthenticated, currentUser]);
 
   useEffect(() => {
-    if (selectedChannel) {
+    if (selectedChannel && currentUser) {
       loadMessages(selectedChannel.id);
       const interval = setInterval(() => {
         loadMessages(selectedChannel.id);
-      }, 3000);
+      }, 5000);
       return () => clearInterval(interval);
     }
-  }, [selectedChannel]);
+  }, [selectedChannel, currentUser]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -190,20 +190,10 @@ const Index = () => {
   const handleSendMessage = async () => {
     if (!messageText.trim() || !currentUser || !selectedChannel) return;
 
-    try {
-      const tempMessage: Message = {
-        id: String(Date.now()),
-        senderId: currentUser.id,
-        senderName: currentUser.name,
-        text: messageText,
-        time: new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
-        isOwn: true
-      };
-      
-      setMessages(prev => [...prev, tempMessage]);
-      const text = messageText;
-      setMessageText('');
+    const text = messageText;
+    setMessageText('');
 
+    try {
       await api.messages.send(
         String(currentUser.id),
         selectedChannel.id,
@@ -211,8 +201,9 @@ const Index = () => {
         false
       );
 
-      setTimeout(() => loadMessages(selectedChannel.id), 500);
+      loadMessages(selectedChannel.id);
     } catch (error) {
+      setMessageText(text);
       toast({
         title: 'Ошибка',
         description: 'Не удалось отправить сообщение',
@@ -256,19 +247,19 @@ const Index = () => {
             await api.messages.send(
               String(currentUser.id),
               selectedChannel.id,
-              '',
+              `Голосовое сообщение (${recordingTime}с)`,
               true,
               recordingTime,
               `data:audio/webm;base64,${base64}`,
               'audio'
             );
             
+            loadMessages(selectedChannel.id);
+            
             toast({
               title: 'Отправлено!',
               description: 'Голосовое сообщение отправлено'
             });
-            
-            setTimeout(() => loadMessages(selectedChannel.id), 500);
           } catch (error) {
             toast({
               title: 'Ошибка',
@@ -308,6 +299,11 @@ const Index = () => {
     const file = event.target.files?.[0];
     if (!file || !currentUser || !selectedChannel) return;
     
+    toast({
+      title: 'Загрузка...',
+      description: 'Отправка файла'
+    });
+    
     const reader = new FileReader();
     reader.onloadend = async () => {
       const base64 = reader.result?.toString().split(',')[1];
@@ -327,12 +323,12 @@ const Index = () => {
           mediaType
         );
         
+        loadMessages(selectedChannel.id);
+        
         toast({
           title: 'Успешно!',
           description: 'Файл отправлен'
         });
-        
-        setTimeout(() => loadMessages(selectedChannel.id), 500);
       } catch (error) {
         toast({
           title: 'Ошибка',
@@ -343,6 +339,10 @@ const Index = () => {
     };
     
     reader.readAsDataURL(file);
+    
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
   };
 
   const handleCreateChannel = async () => {
@@ -456,6 +456,19 @@ const Index = () => {
                 <span className="text-xs" style={{ color: '#b5bac1' }}>В сети</span>
               </div>
             </div>
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={() => {
+                api.auth.logout();
+                setIsAuthenticated(false);
+                setCurrentUser(null);
+              }}
+              style={{ color: '#b5bac1' }}
+              title="Выйти"
+            >
+              <Icon name="LogOut" size={16} />
+            </Button>
           </div>
         </div>
 
