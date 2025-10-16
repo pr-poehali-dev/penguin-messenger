@@ -21,6 +21,7 @@ type Message = {
   id: string;
   senderId: string;
   senderName?: string;
+  senderAvatar?: string;
   text: string;
   time: string;
   isOwn: boolean;
@@ -35,7 +36,6 @@ type Channel = {
   name: string;
   isPublic: boolean;
   members?: number;
-  lastMessage?: string;
 };
 
 const Index = () => {
@@ -48,15 +48,18 @@ const Index = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [messageText, setMessageText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [showCreateChannel, setShowCreateChannel] = useState(false);
-  const [newChannelName, setNewChannelName] = useState('');
+  const [showCreateGroup, setShowCreateGroup] = useState(false);
+  const [newGroupName, setNewGroupName] = useState('');
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
   const [recordingInterval, setRecordingInterval] = useState<NodeJS.Timeout | null>(null);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
+
+  const emojis = ['😀', '😂', '❤️', '👍', '👎', '🔥', '⭐', '🎉', '😊', '😎', '🤔', '👋', '💯', '✨', '🚀', '💪'];
 
   useEffect(() => {
     const session = api.auth.loadSession();
@@ -82,7 +85,7 @@ const Index = () => {
       loadMessages(selectedChannel.id);
       const interval = setInterval(() => {
         loadMessages(selectedChannel.id);
-      }, 5000);
+      }, 4000);
       return () => clearInterval(interval);
     }
   }, [selectedChannel, currentUser]);
@@ -97,17 +100,14 @@ const Index = () => {
       const data = await api.chats.getAll(String(currentUser.id));
       const channelList: Channel[] = (data.chats || []).map((chat: any) => ({
         id: chat.id,
-        name: chat.name || chat.user?.name || 'Канал',
-        isPublic: chat.isGroup || false,
-        members: chat.members || 2,
-        lastMessage: chat.lastMessage
+        name: chat.name || `Группа ${chat.id}`,
+        isPublic: true
       }));
       
       const globalChannel: Channel = {
         id: '1',
-        name: '# общий',
-        isPublic: true,
-        members: 100
+        name: 'общий',
+        isPublic: true
       };
       
       setChannels([globalChannel, ...channelList]);
@@ -116,7 +116,19 @@ const Index = () => {
         setSelectedChannel(globalChannel);
       }
     } catch (error) {
-      console.error('Failed to load channels:', error);
+      console.error('Ошибка загрузки каналов:', error);
+      setChannels([{
+        id: '1',
+        name: 'общий',
+        isPublic: true
+      }]);
+      if (!selectedChannel) {
+        setSelectedChannel({
+          id: '1',
+          name: 'общий',
+          isPublic: true
+        });
+      }
     }
   };
 
@@ -128,8 +140,9 @@ const Index = () => {
         id: msg.id || String(Date.now()),
         senderId: String(msg.sender_id || msg.senderId),
         senderName: msg.sender_name || msg.senderName,
-        text: msg.text || msg.content || '',
-        time: msg.created_at || msg.time || new Date().toLocaleTimeString(),
+        senderAvatar: msg.sender_avatar || msg.senderAvatar,
+        text: msg.text || '',
+        time: msg.created_at ? new Date(msg.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : msg.time,
         isOwn: String(msg.sender_id || msg.senderId) === String(currentUser.id),
         isVoice: msg.is_voice || msg.isVoice || false,
         voiceDuration: msg.voice_duration || msg.voiceDuration,
@@ -138,7 +151,7 @@ const Index = () => {
       }));
       setMessages(messagesList);
     } catch (error) {
-      console.error('Failed to load messages:', error);
+      console.error('Ошибка загрузки сообщений:', error);
       setMessages([]);
     }
   };
@@ -201,12 +214,12 @@ const Index = () => {
         false
       );
 
-      loadMessages(selectedChannel.id);
+      await loadMessages(selectedChannel.id);
     } catch (error) {
       setMessageText(text);
       toast({
         title: 'Ошибка',
-        description: 'Не удалось отправить сообщение',
+        description: 'Не удалось отправить',
         variant: 'destructive'
       });
     }
@@ -247,19 +260,14 @@ const Index = () => {
             await api.messages.send(
               String(currentUser.id),
               selectedChannel.id,
-              `Голосовое сообщение (${recordingTime}с)`,
+              `🎤 Голосовое ${recordingTime}с`,
               true,
               recordingTime,
               `data:audio/webm;base64,${base64}`,
               'audio'
             );
             
-            loadMessages(selectedChannel.id);
-            
-            toast({
-              title: 'Отправлено!',
-              description: 'Голосовое сообщение отправлено'
-            });
+            await loadMessages(selectedChannel.id);
           } catch (error) {
             toast({
               title: 'Ошибка',
@@ -289,7 +297,7 @@ const Index = () => {
     } catch (error) {
       toast({
         title: 'Ошибка',
-        description: 'Не удалось получить доступ к микрофону',
+        description: 'Нет доступа к микрофону',
         variant: 'destructive'
       });
     }
@@ -298,11 +306,6 @@ const Index = () => {
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file || !currentUser || !selectedChannel) return;
-    
-    toast({
-      title: 'Загрузка...',
-      description: 'Отправка файла'
-    });
     
     const reader = new FileReader();
     reader.onloadend = async () => {
@@ -323,16 +326,16 @@ const Index = () => {
           mediaType
         );
         
-        loadMessages(selectedChannel.id);
+        await loadMessages(selectedChannel.id);
         
         toast({
-          title: 'Успешно!',
+          title: 'Отправлено',
           description: 'Файл отправлен'
         });
       } catch (error) {
         toast({
           title: 'Ошибка',
-          description: 'Не удалось отправить файл',
+          description: 'Не удалось отправить',
           variant: 'destructive'
         });
       }
@@ -345,32 +348,37 @@ const Index = () => {
     }
   };
 
-  const handleCreateChannel = async () => {
-    if (!currentUser || !newChannelName.trim()) {
+  const handleCreateGroup = async () => {
+    if (!currentUser || !newGroupName.trim()) {
       toast({
         title: 'Ошибка',
-        description: 'Введите название канала',
+        description: 'Введите название группы',
         variant: 'destructive'
       });
       return;
     }
     
     try {
-      await api.chats.createGroup(String(currentUser.id), newChannelName, []);
+      await api.chats.createGroup(String(currentUser.id), newGroupName, []);
       toast({
-        title: 'Успешно!',
-        description: `Канал "${newChannelName}" создан`
+        title: 'Готово!',
+        description: `Группа "${newGroupName}" создана`
       });
-      setShowCreateChannel(false);
-      setNewChannelName('');
+      setShowCreateGroup(false);
+      setNewGroupName('');
       await loadChannels();
     } catch (error) {
       toast({
         title: 'Ошибка',
-        description: 'Не удалось создать канал',
+        description: 'Не удалось создать группу',
         variant: 'destructive'
       });
     }
+  };
+
+  const addEmoji = (emoji: string) => {
+    setMessageText(prev => prev + emoji);
+    setShowEmojiPicker(false);
   };
 
   if (!isAuthenticated) {
@@ -431,12 +439,13 @@ const Index = () => {
       <div className="w-72 flex flex-col" style={{ background: '#2b2d31' }}>
         <div className="p-4 border-b" style={{ borderColor: '#1e1f22' }}>
           <div className="flex items-center justify-between mb-4">
-            <h2 className="font-bold text-lg" style={{ color: '#f2f3f5' }}>Каналы</h2>
+            <h2 className="font-bold text-lg" style={{ color: '#f2f3f5' }}>Группы</h2>
             <Button
               size="icon"
               variant="ghost"
-              onClick={() => setShowCreateChannel(true)}
+              onClick={() => setShowCreateGroup(true)}
               style={{ color: '#b5bac1' }}
+              title="Создать группу"
             >
               <Icon name="Plus" size={20} />
             </Button>
@@ -484,14 +493,9 @@ const Index = () => {
               }}
             >
               <div className="flex items-center gap-2">
-                <Icon name={channel.isPublic ? 'Hash' : 'Lock'} size={16} />
+                <Icon name="Hash" size={16} />
                 <span className="font-medium">{channel.name}</span>
               </div>
-              {channel.lastMessage && (
-                <p className="text-xs truncate mt-1" style={{ color: '#80848e' }}>
-                  {channel.lastMessage}
-                </p>
-              )}
             </div>
           ))}
         </ScrollArea>
@@ -501,25 +505,24 @@ const Index = () => {
         {selectedChannel ? (
           <>
             <div className="h-16 px-4 flex items-center border-b" style={{ borderColor: '#1e1f22' }}>
-              <Icon name={selectedChannel.isPublic ? 'Hash' : 'Lock'} size={20} style={{ color: '#b5bac1' }} />
+              <Icon name="Hash" size={20} style={{ color: '#b5bac1' }} />
               <h2 className="ml-2 font-bold text-lg" style={{ color: '#f2f3f5' }}>
                 {selectedChannel.name}
               </h2>
-              {selectedChannel.members && (
-                <span className="ml-auto text-sm" style={{ color: '#b5bac1' }}>
-                  <Icon name="Users" size={16} className="inline mr-1" />
-                  {selectedChannel.members}
-                </span>
-              )}
             </div>
 
             <ScrollArea className="flex-1 p-4">
               <div className="space-y-4">
+                {messages.length === 0 && (
+                  <div className="text-center py-8" style={{ color: '#80848e' }}>
+                    Нет сообщений. Напишите первым!
+                  </div>
+                )}
                 {messages.map((msg) => (
                   <div key={msg.id} className="flex gap-3 hover:bg-black/10 p-2 rounded">
                     <Avatar className="w-10 h-10">
                       <AvatarFallback style={{ background: '#5865f2' }}>
-                        {msg.senderName?.[0] || '?'}
+                        {msg.senderAvatar || msg.senderName?.[0] || '?'}
                       </AvatarFallback>
                     </Avatar>
                     <div className="flex-1">
@@ -531,18 +534,11 @@ const Index = () => {
                           {msg.time}
                         </span>
                       </div>
-                      {msg.isVoice ? (
-                        <div className="flex items-center gap-2 p-2 rounded" style={{ background: '#2b2d31' }}>
-                          <Icon name="Mic" size={16} style={{ color: '#b5bac1' }} />
-                          <span className="text-sm" style={{ color: '#b5bac1' }}>
-                            Голосовое сообщение ({msg.voiceDuration}с)
-                          </span>
-                        </div>
-                      ) : msg.mediaUrl && msg.mediaType === 'image' ? (
+                      {msg.mediaUrl && msg.mediaType === 'image' ? (
                         <img 
                           src={msg.mediaUrl} 
                           alt={msg.text}
-                          className="max-w-md rounded"
+                          className="max-w-md rounded mt-1"
                         />
                       ) : (
                         <p style={{ color: '#dbdee1' }}>{msg.text}</p>
@@ -558,12 +554,29 @@ const Index = () => {
               {isRecording && (
                 <div className="mb-2 flex items-center gap-2 text-sm" style={{ color: '#ed4245' }}>
                   <Icon name="Mic" size={16} />
-                  <span>Запись... {recordingTime}с</span>
+                  <span>🔴 Запись {recordingTime}с</span>
                   <Button size="sm" variant="ghost" onClick={handleVoiceRecord}>
                     Остановить
                   </Button>
                 </div>
               )}
+              
+              {showEmojiPicker && (
+                <div className="mb-2 p-3 rounded" style={{ background: '#2b2d31' }}>
+                  <div className="grid grid-cols-8 gap-2">
+                    {emojis.map((emoji, i) => (
+                      <button
+                        key={i}
+                        onClick={() => addEmoji(emoji)}
+                        className="text-2xl hover:scale-125 transition-transform"
+                      >
+                        {emoji}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              
               <div className="flex gap-2 items-center p-2 rounded" style={{ background: '#383a40' }}>
                 <input
                   type="file"
@@ -571,17 +584,28 @@ const Index = () => {
                   onChange={handleFileUpload}
                   className="hidden"
                   accept="image/*,video/*"
+                  capture="environment"
                 />
                 <Button
                   size="icon"
                   variant="ghost"
                   onClick={() => fileInputRef.current?.click()}
                   style={{ color: '#b5bac1' }}
+                  title="Загрузить файл / Камера"
                 >
-                  <Icon name="Plus" size={20} />
+                  <Icon name="ImagePlus" size={20} />
+                </Button>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                  style={{ color: '#b5bac1' }}
+                  title="Смайлики"
+                >
+                  <Icon name="Smile" size={20} />
                 </Button>
                 <Input
-                  placeholder={`Сообщение в ${selectedChannel.name}`}
+                  placeholder={`Сообщение в #${selectedChannel.name}`}
                   value={messageText}
                   onChange={(e) => setMessageText(e.target.value)}
                   onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && handleSendMessage()}
@@ -594,6 +618,7 @@ const Index = () => {
                   variant="ghost"
                   onClick={handleVoiceRecord}
                   style={{ color: isRecording ? '#ed4245' : '#b5bac1' }}
+                  title="Голосовое сообщение"
                 >
                   <Icon name="Mic" size={20} />
                 </Button>
@@ -602,33 +627,34 @@ const Index = () => {
           </>
         ) : (
           <div className="flex-1 flex items-center justify-center">
-            <p style={{ color: '#b5bac1' }}>Выберите канал</p>
+            <p style={{ color: '#b5bac1' }}>Выберите группу</p>
           </div>
         )}
       </div>
 
-      <Dialog open={showCreateChannel} onOpenChange={setShowCreateChannel}>
+      <Dialog open={showCreateGroup} onOpenChange={setShowCreateGroup}>
         <DialogContent style={{ background: '#2b2d31', border: 'none' }}>
           <DialogHeader>
-            <DialogTitle style={{ color: '#f2f3f5' }}>Создать канал</DialogTitle>
+            <DialogTitle style={{ color: '#f2f3f5' }}>Создать группу</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <Label htmlFor="channel-name" style={{ color: '#b5bac1' }}>Название канала</Label>
+              <Label htmlFor="group-name" style={{ color: '#b5bac1' }}>Название группы</Label>
               <Input
-                id="channel-name"
-                placeholder="например: игры"
-                value={newChannelName}
-                onChange={(e) => setNewChannelName(e.target.value)}
+                id="group-name"
+                placeholder="Моя группа"
+                value={newGroupName}
+                onChange={(e) => setNewGroupName(e.target.value)}
+                onKeyPress={(e) => e.key === 'Enter' && handleCreateGroup()}
                 style={{ background: '#1e1f22', border: 'none', color: '#f2f3f5' }}
                 className="mt-1"
               />
             </div>
             <Button
-              onClick={handleCreateChannel}
+              onClick={handleCreateGroup}
               className="w-full"
               style={{ background: '#5865f2', color: 'white' }}
-              disabled={!newChannelName.trim()}
+              disabled={!newGroupName.trim()}
             >
               Создать
             </Button>
